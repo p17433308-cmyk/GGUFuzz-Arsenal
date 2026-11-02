@@ -1,0 +1,107 @@
+================================================================================
+  GGUFuzz: AI Model Supply Chain Attack Framework
+  Weaponizing GGUF/Safetensors Parser Vulnerabilities
+  Black Hat Asia 2027 — Arsenal
+================================================================================
+
+  Dr. Sapna V M, Prajwal Chowdary M, Prasad B Honnavalli
+  PES University, Bengaluru, India
+
+================================================================================
+1. PROBLEM
+================================================================================
+The AI community moved from pickle to GGUF/safetensors, believing the supply
+chain problem was solved. It wasn't. llama.cpp — the inference engine behind
+Ollama, LM Studio, GPT4All, and most local AI — has had 7 memory corruption
+CVEs in 2025-2026, all in its GGUF parser:
+
+  CVE-2025-32444   Heap buffer overflow in metadata parsing
+  CVE-2025-49847   Out-of-bounds read in tensor validation
+  CVE-2026-21869   Negative n_discard OOB write
+  CVE-2026-27940   Heap overflow bypassing CVE-2025-53630 fix
+  CVE-2026-33298   ggml_nbytes integer overflow
+  CVE-2026-34159   Memory corruption in quantization handling
+  CVE-2026-43629   KV-cache state restore vulnerability
+
+Attack scenario: Upload malicious GGUF model to HuggingFace → user downloads
+→ loads in Ollama/LM Studio → parser bug triggers → code execution. No
+interaction beyond "load this model."
+
+HuggingFace hosts 800,000+ GGUF models, downloaded millions of times daily.
+No tool exists to test parser security or generate adversarial model files.
+
+================================================================================
+2. GGUFUZZ
+================================================================================
+5,970 LOC · 29 tests · Python 3.8+ · zero dependencies
+
+2.1 GGUF Format Engine
+Complete file format implementation:
+  * Header: magic, version, tensor count, metadata KV count
+  * All 27 metadata value types (UINT8–FLOAT64, STRING, ARRAY, nested)
+  * Tensor info: name, dimensions, quantization type, offset
+  * Alignment-aware binary serialization
+  * Round-trip parse and rebuild
+
+2.2 CVE Weaponizer
+Generates crafted GGUF files triggering specific vulnerabilities:
+  * CVE-2025-32444 → oversized metadata string → heap overflow
+  * CVE-2025-49847 → invalid tensor dimensions → OOB read
+  * CVE-2026-21869 → negative n_discard → OOB write
+  * CVE-2026-27940 → heap overflow via new code path (bypasses prior fix)
+  * CVE-2026-33298 → integer overflow in nbytes calculation
+  * CVE-2026-34159 → malformed quantization params → memory corruption
+  * CVE-2026-43629 → crafted KV-cache state → state restore exploit
+
+Each file passes initial header checks but triggers the bug during parsing.
+
+2.3 Grammar-Aware Fuzzer
+  * Header mutations: invalid magic, version overflow, extreme counts
+  * Metadata mutations: type confusion, nested array bombs, null bytes
+  * Tensor mutations: dimension overflow, invalid quant types, overlapping data
+  * Alignment attacks: non-aligned offsets, padding corruption
+  * Supply chain patterns: valid model with poisoned metadata
+
+2.4 Supply Chain Attack Simulator
+  * Trojan GGUF generation with embedded payloads in metadata
+  * HuggingFace repo structure generation
+  * Model card generation with social engineering lures
+
+2.5 Scanner & Detector
+  * Scan GGUF files for known vulnerability patterns
+  * Detect anomalous metadata, oversized fields, suspicious tensors
+  * Version fingerprinting of llama.cpp builds → applicable CVE mapping
+
+================================================================================
+3. VALIDATION
+================================================================================
+  * 29 passing tests
+  * 7 real CVEs reproduced with crafted GGUF files (all verified on NVD)
+  * Valid GGUF output verified against llama.cpp source
+  * Bytewise-correct format implementation
+
+================================================================================
+4. PRIOR ART
+================================================================================
+  * Pickle RCE research — different format, different attack surface
+  * AFL/libFuzzer on llama.cpp — coverage-guided, not semantic/CVE-targeted
+  * HuggingFace scanning tools — check for pickle, not GGUF parser bugs
+  * safetensors (format) — "safe" specification, but parser bugs still exist
+
+GGUFuzz is, to our knowledge, the first open-source tool targeting the GGUF
+parser attack surface with grammar-aware fuzzing and CVE-specific weaponization.
+
+================================================================================
+5. DEMO PLAN (50 min)
+================================================================================
+  1. AI supply chain threat (5 min) — why GGUF isn't safe, HuggingFace scale
+  2. GGUF format deep dive (5 min) — file structure, where parser bugs live
+  3. CVE weaponization (15 min) — live crafted GGUF generation for 3 CVEs
+  4. Supply chain attack (10 min) — trojan model → fake repo → load → crash
+  5. Fuzzing (5 min) — grammar-aware mutations, coverage strategy
+  6. Detection & defense (5 min) — scan real models, hardening advice
+  7. Q&A (5 min)
+
+  Environment: Vulnerable llama.cpp in isolated container. No real uploads.
+
+================================================================================
